@@ -5,6 +5,7 @@ from flaskr.modelos import db, Usuario, Rol
 from flask_jwt_extended import jwt_required, create_access_token, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask import request
 from ..modelos import (
     db, Rol, Usuario, Carrito, CarritoProducto, Producto, Categoria, Talla,
     Pedido, MetodoPago, Factura, Reseña, DetalleFactura,
@@ -13,6 +14,9 @@ from ..modelos import (
     TallaSchema, DetalleFacturaSchema, RolSchema
 )
 
+import logging
+
+
 # Serializadores
 usuario_schema = UsuarioSchema()
 usuarios_schema = UsuarioSchema(many=True)
@@ -20,88 +24,119 @@ producto_schema = ProductoSchema()
 productos_schema = ProductoSchema(many=True)
 pedido_schema = PedidoSchema()
 pedidos_schema = PedidoSchema(many=True)
-factura_schema = FacturaSchema()
 reseña_schema = ReseñaSchema()
 reseñas_schema = ReseñaSchema(many=True)
-metodo_pago_schema = MetodoPagoSchema()
-metodos_pago_schema = MetodoPagoSchema(many=True)
-carrito_schema = CarritoSchema()
-carritos_schema = CarritoSchema(many=True)
-categoria_schema = CategoriaSchema()
-categorias_schema = CategoriaSchema(many=True)
-talla_schema = TallaSchema()
-tallas_schema = TallaSchema(many=True)
-carrito_producto_schema = CarritoProductoSchema()
-carritos_productos_schema = CarritoProductoSchema(many=True)
-detalle_factura_schema = DetalleFacturaSchema()
-detalles_factura_schema = DetalleFacturaSchema(many=True)
 
-# ==================== Vistas para Usuarios ==================== #
+# ==================== Vistas Generales ==================== #
 
-class VistaCrearUsuario(Resource):
-    def post(self):
-        data = request.json
-        if not data:
-            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
-
-        nombre = data.get("nombre")
-        email = data.get("email")
-        contrasena = data.get("password")
-        num_cel = data.get("num_cel")  # Asegúrate de obtener este campo
-        direccion = data.get("direccion")
-        id_rol = data.get("id_rol", 2)  # Default rol_id es 2 (usuario)
-        estado = "Activo"
-
-        # Verificar campos obligatorios
-        if not nombre or not email or not contrasena or not num_cel:
-            return {"mensaje": "Nombre, email, contraseña y número de celular son obligatorios."}, 400
-
-        # Validar que el email no esté registrado
-        if Usuario.query.filter_by(email=email).first():
-            return {"mensaje": "El email ya está registrado."}, 409
-
-        # Validar que el rol exista
-        rol = Rol.query.filter_by(id=id_rol).first()
-        if not rol:
-            return {"mensaje": f"El rol con ID {id_rol} no existe."}, 404
-
-        # Crear el usuario
-        nuevo_usuario = Usuario(
-            nombre=nombre,
-            email=email,
-            num_cel=num_cel,  # Asegúrate de asignar este valor
-            contrasena_hash=generate_password_hash(contrasena),
-            direccion=direccion,
-            id_rol=id_rol,
-            estado=estado
-        )
-
-        # Guardar en la base de datos
+"""
+class VistaUsuarios(Resource):
+    @jwt_required()
+    def get(self):
         try:
+            logging.info("Recibida solicitud GET en /usuarios")
+            usuarios = Usuario.query.all()
+            logging.info(f"Usuarios encontrados: {len(usuarios)}")
+            return usuarios_schema.dump(usuarios), 200
+        except Exception as e:
+            logging.error(f"Error en VistaUsuarios.get: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+
+    @jwt_required()
+    def post(self):
+        try:
+            nuevo_usuario = Usuario(
+                nombre=request.json['nombre'],
+                email=request.json['email'],
+                num_cel=request.json.get('num_cel', ''),
+                direccion=request.json.get('direccion', ''),
+                contrasena_hash=generate_password_hash(request.json['contrasena']),
+                id_rol=request.json['id_rol'],
+                estado=request.json.get('estado', 'Activo')
+            )
             db.session.add(nuevo_usuario)
             db.session.commit()
-            return {"mensaje": "Usuario registrado exitosamente."}, 201
-        except IntegrityError:
+            return usuario_schema.dump(nuevo_usuario), 201
+        except IntegrityError as e:
             db.session.rollback()
-            return {"mensaje": "Error al registrar el usuario. Intenta nuevamente."}, 500
-
-
-
-class VistaEliminarUsuario(Resource):
+            logging.error(f"Error de integridad: {str(e)}")
+            return {"mensaje": "Error al crear el usuario. Verifique los datos ingresados."}, 409
+        except KeyError as e:
+            logging.error(f"Falta el campo: {str(e)}")
+            return {"mensaje": f"Falta el campo obligatorio: {str(e)}."}, 400
+        except Exception as e:
+            logging.error(f"Error en VistaUsuarios.post: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+"""
+class VistaUsuarios(Resource):
     @jwt_required()
-    def delete(self, id_usuario):
-        usuario = Usuario.query.get_or_404(id_usuario)
-        db.session.delete(usuario)
-        db.session.commit()
-        return '', 204
+    def get(self):
+        try:
+            # Obtener el ID del usuario actual desde el token
+            usuario_actual_id = get_jwt_identity()
+            if not isinstance(usuario_actual_id, (str, int)):
+                raise ValueError("El ID del usuario no es un formato válido.")
 
-class VistaVerUsuario(Resource):
+            logging.info(f"Usuario autenticado con ID: {usuario_actual_id}")
+
+            # Consultar todos los usuarios en la base de datos
+            usuarios = Usuario.query.all()
+
+            if not usuarios:
+                logging.info("No hay usuarios registrados en la base de datos.")
+                return {"mensaje": "No hay usuarios registrados."}, 200
+
+            logging.info(f"Usuarios encontrados: {len(usuarios)}")
+            return usuarios_schema.dump(usuarios), 200
+        except ValueError as ve:
+            logging.error(f"Error en validación del token: {str(ve)}")
+            return {"mensaje": str(ve)}, 422
+        except Exception as e:
+            logging.error(f"Error en VistaUsuarios.get: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+
+    @jwt_required()
+    def post(self):
+        try:
+            # Crear un nuevo usuario con los datos proporcionados
+            nuevo_usuario = Usuario(
+                nombre=request.json['nombre'],
+                email=request.json['email'],
+                num_cel=request.json.get('num_cel', ''),
+                direccion=request.json.get('direccion', ''),
+                contrasena_hash=generate_password_hash(request.json['contrasena']),
+                id_rol=request.json['id_rol'],
+                estado=request.json.get('estado', 'Activo')
+            )
+
+            # Guardar el usuario en la base de datos
+            db.session.add(nuevo_usuario)
+            db.session.commit()
+
+            logging.info(f"Usuario creado exitosamente: {nuevo_usuario.nombre}")
+            return usuario_schema.dump(nuevo_usuario), 201
+        except IntegrityError as e:
+            db.session.rollback()
+            logging.error(f"Error de integridad: {str(e)}")
+            return {"mensaje": "Error al crear el usuario. Verifique los datos ingresados."}, 409
+        except KeyError as e:
+            logging.error(f"Falta el campo obligatorio: {str(e)}")
+            return {"mensaje": f"Falta el campo obligatorio: {str(e)}."}, 400
+        except Exception as e:
+            logging.error(f"Error en VistaUsuarios.post: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+
+
+
+
+
+"""
+class VistaUsuario(Resource):
     @jwt_required()
     def get(self, id_usuario):
         usuario = Usuario.query.get_or_404(id_usuario)
         return usuario_schema.dump(usuario), 200
 
-class VistaEditarUsuario(Resource):
     @jwt_required()
     def put(self, id_usuario):
         usuario = Usuario.query.get_or_404(id_usuario)
@@ -112,47 +147,74 @@ class VistaEditarUsuario(Resource):
         db.session.commit()
         return usuario_schema.dump(usuario), 200
 
-class VistaSeleccionRoles(Resource):
     @jwt_required()
+    def delete(self, id_usuario):
+        usuario = Usuario.query.get_or_404(id_usuario)
+        db.session.delete(usuario)
+        db.session.commit()
+        return '', 204
+    
+"""
+class VistaUsuario(Resource):
+    @jwt_required()
+    def get(self, id_usuario):
+        try:
+            usuario_actual_id = get_jwt_identity()
+            if not usuario_actual_id:
+                return {"mensaje": "Token inválido o no proporcionado."}, 401
+
+            usuario = Usuario.query.get_or_404(id_usuario)
+            return usuario_schema.dump(usuario), 200
+        except Exception as e:
+            logging.error(f"Error en VistaUsuario.get: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+
+    @jwt_required()
+    def put(self, id_usuario):
+        try:
+            usuario_actual_id = get_jwt_identity()
+            if not usuario_actual_id:
+                return {"mensaje": "Token inválido o no proporcionado."}, 401
+
+            usuario = Usuario.query.get_or_404(id_usuario)
+            usuario.nombre = request.json.get("nombre", usuario.nombre)
+            usuario.email = request.json.get("email", usuario.email)
+            usuario.direccion = request.json.get("direccion", usuario.direccion)
+            usuario.estado = request.json.get("estado", usuario.estado)
+            db.session.commit()
+            return usuario_schema.dump(usuario), 200
+        except Exception as e:
+            logging.error(f"Error en VistaUsuario.put: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+
+    @jwt_required()
+    def delete(self, id_usuario):
+        try:
+            usuario_actual_id = get_jwt_identity()
+            if not usuario_actual_id:
+                return {"mensaje": "Token inválido o no proporcionado."}, 401
+
+            usuario = Usuario.query.get_or_404(id_usuario)
+            db.session.delete(usuario)
+            db.session.commit()
+            return '', 204
+        except Exception as e:
+            logging.error(f"Error en VistaUsuario.delete: {str(e)}")
+            return {"mensaje": "Error interno del servidor."}, 500
+        
+
+
+class VistaProductos(Resource):
     def get(self):
-        roles = Rol.query.all()
-        return [{"id": rol.id, "nombre": rol.nombre} for rol in roles], 200
+        productos = Producto.query.all()
+        return productos_schema.dump(productos), 200
 
-class VistaRegistroUsuarios(Resource):
-    def post(self):
-        data = request.json
-        if not data:
-            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
-
-        return VistaCrearUsuario().post()
-
-class VistaInicioSesion(Resource):
-    def post(self):
-        email = request.json["email"]
-        contrasena = request.json["password"]
-        usuario = Usuario.query.filter_by(email=email).first()
-        if usuario and usuario.verificar_contrasena(contrasena):
-            token = create_access_token(identity={"id": usuario.id, "rol": usuario.id_rol})
-            return {"mensaje": "Inicio de sesión exitoso", "token": token}, 200
-        return {"mensaje": "Email o contraseña incorrectos"}, 401
-
-class VistaCerrarSesion(Resource):
+class VistaProducto(Resource):
     @jwt_required()
-    def post(self):
-        return {"mensaje": "Sesión cerrada correctamente"}, 200
+    def get(self, id_producto):
+        producto = Producto.query.get_or_404(id_producto)
+        return producto_schema.dump(producto), 200
 
-class VistaRecuperarContrasena(Resource):
-    def post(self):
-        email = request.json["email"]
-        usuario = Usuario.query.filter_by(email=email).first()
-        if usuario:
-            # Aquí iría la lógica de envío de correo
-            return {"mensaje": "Correo de recuperación enviado."}, 200
-        return {"mensaje": "Email no encontrado"}, 404
-
-# ==================== Vistas para Productos ==================== #
-
-class VistaCrearProducto(Resource):
     @jwt_required()
     def post(self):
         nuevo_producto = Producto(
@@ -166,12 +228,6 @@ class VistaCrearProducto(Resource):
         db.session.commit()
         return producto_schema.dump(nuevo_producto), 201
 
-class VistaVerProducto(Resource):
-    def get(self, id_producto):
-        producto = Producto.query.get_or_404(id_producto)
-        return producto_schema.dump(producto), 200
-
-class VistaEditarProducto(Resource):
     @jwt_required()
     def put(self, id_producto):
         producto = Producto.query.get_or_404(id_producto)
@@ -182,7 +238,6 @@ class VistaEditarProducto(Resource):
         db.session.commit()
         return producto_schema.dump(producto), 200
 
-class VistaEliminarProducto(Resource):
     @jwt_required()
     def delete(self, id_producto):
         producto = Producto.query.get_or_404(id_producto)
@@ -190,78 +245,22 @@ class VistaEliminarProducto(Resource):
         db.session.commit()
         return '', 204
 
-class VistaSeleccionTallaCantidad(Resource):
-    def get(self, id_producto):
-        producto = Producto.query.get_or_404(id_producto)
-        return {"id_producto": producto.id, "tallas": [{"id": talla.id, "nombre": talla.nombre} for talla in producto.tallas]}, 200
-
-class VistaBuscarProducto(Resource):
+class VistaPedidos(Resource):
+    @jwt_required()
     def get(self):
-        nombre = request.args.get("nombre", "").lower()
-        categoria = request.args.get("categoria", type=int)
-        precio_min = request.args.get("precio_min", type=float)
-        precio_max = request.args.get("precio_max", type=float)
+        pedidos = Pedido.query.all()
+        return pedidos_schema.dump(pedidos), 200
 
-        productos = Producto.query
-        if nombre:
-            productos = productos.filter(Producto.nombre.ilike(f"%{nombre}%"))
-        if categoria:
-            productos = productos.filter_by(id_categoria=categoria)
-        if precio_min is not None:
-            productos = productos.filter(Producto.precio >= precio_min)
-        if precio_max is not None:
-            productos = productos.filter(Producto.precio <= precio_max)
-
-        return productos_schema.dump(productos.all()), 200
-
-# ==================== Vistas para Reseñas ==================== #
-
-class VistaCrearResena(Resource):
+class VistaPedido(Resource):
     @jwt_required()
-    def post(self):
-        nueva_resena = Reseña(
-            comentario=request.json["comentario"],
-            calificacion=request.json["calificacion"],
-            id_producto=request.json["id_producto"]
-        )
-        db.session.add(nueva_resena)
-        db.session.commit()
-        return reseña_schema.dump(nueva_resena), 201
-
-class VistaVerResena(Resource):
-    def get(self, id_resena):
-        reseña = Reseña.query.get_or_404(id_resena)
-        return reseña_schema.dump(reseña), 200
-
-class VistaEditarResena(Resource):
-    @jwt_required()
-    def put(self, id_resena):
-        reseña = Reseña.query.get_or_404(id_resena)
-        reseña.comentario = request.json.get("comentario", reseña.comentario)
-        reseña.calificacion = request.json.get("calificacion", reseña.calificacion)
-        db.session.commit()
-        return reseña_schema.dump(reseña), 200
-
-class VistaEliminarResena(Resource):
-    @jwt_required()
-    def delete(self, id_resena):
-        reseña = Reseña.query.get_or_404(id_resena)
-        db.session.delete(reseña)
-        db.session.commit()
-        return '', 204
-
-# ==================== Vistas para Pedidos ==================== #
-
-class VistaVerPedido(Resource):
     def get(self, id_pedido):
         pedido = Pedido.query.get_or_404(id_pedido)
         return pedido_schema.dump(pedido), 200
 
-class VistaCrearPedido(Resource):
     @jwt_required()
     def post(self):
         nuevo_pedido = Pedido(
-            id_usuario=get_jwt_identity()["id"],
+            id_usuario=request.json["id_usuario"],
             total_pedido=request.json["total_pedido"],
             direccion_envio=request.json["direccion_envio"],
             id_metodo_pago=request.json["id_metodo_pago"]
@@ -270,7 +269,6 @@ class VistaCrearPedido(Resource):
         db.session.commit()
         return pedido_schema.dump(nuevo_pedido), 201
 
-class VistaEditarPedido(Resource):
     @jwt_required()
     def put(self, id_pedido):
         pedido = Pedido.query.get_or_404(id_pedido)
@@ -280,7 +278,6 @@ class VistaEditarPedido(Resource):
         db.session.commit()
         return pedido_schema.dump(pedido), 200
 
-class VistaEliminarPedido(Resource):
     @jwt_required()
     def delete(self, id_pedido):
         pedido = Pedido.query.get_or_404(id_pedido)
@@ -288,29 +285,193 @@ class VistaEliminarPedido(Resource):
         db.session.commit()
         return '', 204
 
-class VistaRealizarPedido(Resource):
-    @jwt_required()
-    def post(self, id_pedido):
-        pedido = Pedido.query.get_or_404(id_pedido)
-        pedido.estado_pedido = "Realizado"
-        db.session.commit()
-        return pedido_schema.dump(pedido), 200
-
-# ==================== Vistas para Facturas ==================== #
-
-class VistaSeleccionMetodoPago(Resource):
+class VistaReseñas(Resource):
     def get(self):
-        metodos = MetodoPago.query.all()
-        return metodos_pago_schema.dump(metodos), 200
+        reseñas = Reseña.query.all()
+        return reseñas_schema.dump(reseñas), 200
 
-class VistaGenerarFactura(Resource):
+class VistaReseña(Resource):
     @jwt_required()
-    def post(self, id_pedido):
-        pedido = Pedido.query.get_or_404(id_pedido)
-        nueva_factura = Factura(
-            id_usuario=pedido.id_usuario,
-            monto_total=pedido.total_pedido
+    def get(self, id_resena):
+        reseña = Reseña.query.get_or_404(id_resena)
+        return reseña_schema.dump(reseña), 200
+
+    @jwt_required()
+    def post(self):
+        nueva_reseña = Reseña(
+            comentario=request.json["comentario"],
+            calificacion=request.json["calificacion"],
+            id_producto=request.json["id_producto"]
         )
-        db.session.add(nueva_factura)
+        db.session.add(nueva_reseña)
         db.session.commit()
-        return factura_schema.dump(nueva_factura), 201
+        return reseña_schema.dump(nueva_reseña), 201
+
+    @jwt_required()
+    def put(self, id_resena):
+        reseña = Reseña.query.get_or_404(id_resena)
+        reseña.comentario = request.json.get("comentario", reseña.comentario)
+        reseña.calificacion = request.json.get("calificacion", reseña.calificacion)
+        db.session.commit()
+        return reseña_schema.dump(reseña), 200
+
+    @jwt_required()
+    def delete(self, id_resena):
+        reseña = Reseña.query.get_or_404(id_resena)
+        db.session.delete(reseña)
+        db.session.commit()
+        return '', 204
+
+# ==================== Vistas de Autenticación ==================== #
+"""
+class VistaCrearUsuario(Resource):
+    def post(self):
+        data = request.json
+        if not data:
+            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
+
+        nombre = data.get("nombre")
+        email = data.get("email")
+        contrasena = data.get("password")
+        num_cel = data.get("num_cel")
+        direccion = data.get("direccion")
+        id_rol = data.get("id_rol", 2)
+        estado = "Activo"
+
+        if not nombre or not email or not contrasena or not num_cel:
+            return {"mensaje": "Nombre, email, contraseña y número de celular son obligatorios."}, 400
+
+        if Usuario.query.filter_by(email=email).first():
+            return {"mensaje": "El email ya está registrado."}, 409
+
+        rol = Rol.query.filter_by(id=id_rol).first()
+        if not rol:
+            return {"mensaje": f"El rol con ID {id_rol} no existe."}, 404
+
+        nuevo_usuario = Usuario(
+            nombre=nombre,
+            email=email,
+            num_cel=num_cel,
+            contrasena_hash=generate_password_hash(contrasena),
+            direccion=direccion,
+            id_rol=id_rol,
+            estado=estado
+        )
+
+        try:
+            db.session.add(nuevo_usuario)
+            db.session.commit()
+            return {"mensaje": "Usuario registrado exitosamente."}, 201
+        except IntegrityError:
+            db.session.rollback()
+            return {"mensaje": "Error al registrar el usuario. Intenta nuevamente."}, 500
+ """       
+class VistaCrearUsuario(Resource):
+    def post(self):
+        data = request.json
+        if not data:
+            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
+
+        nombre = data.get("nombre")
+        email = data.get("email")
+        contrasena = data.get("password")
+        num_cel = data.get("num_cel")
+        direccion = data.get("direccion")
+        id_rol = data.get("id_rol", 2)
+        estado = "Activo"
+
+        if not nombre or not email or not contrasena or not num_cel:
+            return {"mensaje": "Nombre, email, contraseña y número de celular son obligatorios."}, 400
+
+        if Usuario.query.filter_by(email=email).first():
+            return {"mensaje": "El email ya está registrado."}, 409
+
+        rol = Rol.query.filter_by(id=id_rol).first()
+        if not rol:
+            return {"mensaje": f"El rol con ID {id_rol} no existe."}, 404
+
+        nuevo_usuario = Usuario(
+            nombre=nombre,
+            email=email,
+            num_cel=num_cel,
+            contrasena_hash=generate_password_hash(contrasena),
+            direccion=direccion,
+            id_rol=id_rol,
+            estado=estado
+        )
+
+        try:
+            db.session.add(nuevo_usuario)
+            db.session.commit()
+            return {"mensaje": "Usuario registrado exitosamente."}, 201
+        except IntegrityError as e:
+            db.session.rollback()
+            logging.error(f"Error de integridad: {str(e)}")
+            return {"mensaje": "Error al registrar el usuario. Intenta nuevamente."}, 500
+
+
+
+
+
+
+
+"""
+class VistaRegistroUsuarios(Resource):
+    def post(self):
+        data = request.json
+        if not data:
+            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
+
+        return VistaCrearUsuario().post()
+
+from flask_jwt_extended import create_access_token
+"""
+class VistaRegistroUsuarios(Resource):
+    def post(self):
+        data = request.json
+        if not data:
+            return {"mensaje": "El cuerpo de la solicitud está vacío o mal formado"}, 400
+
+        return VistaCrearUsuario().post()
+
+
+
+
+
+
+"""
+class VistaInicioSesion(Resource):
+    def post(self):
+        email = request.json.get("email")
+        contrasena = request.json.get("password")
+
+        # Buscar usuario por email
+        usuario = Usuario.query.filter_by(email=email).first()
+
+        if usuario and usuario.verificar_contrasena(contrasena):
+            # Generar el token con el ID y el rol del usuario
+            #token = create_access_token(identity={"id": usuario.id, "rol": usuario.id_rol})
+            token = create_access_token(identity=str(usuario.id))
+            mensaje = "Inicio de sesión exitoso"
+            if usuario.id_rol == 1:
+                mensaje += " como administrador"
+            return {"mensaje": mensaje, "token": token}, 200
+
+        return {"mensaje": "Email o contraseña incorrectos"}, 401
+
+"""
+class VistaInicioSesion(Resource):
+    def post(self):
+        email = request.json.get("email")
+        contrasena = request.json.get("password")
+
+        usuario = Usuario.query.filter_by(email=email).first()
+
+        if usuario and usuario.verificar_contrasena(contrasena):
+            token = create_access_token(identity=str(usuario.id))
+            mensaje = "Inicio de sesión exitoso"
+            if usuario.id_rol == 1:
+                mensaje += " como administrador"
+            return {"mensaje": mensaje, "token": token}, 200
+
+        return {"mensaje": "Email o contraseña incorrectos"}, 401

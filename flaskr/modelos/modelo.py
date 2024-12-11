@@ -14,17 +14,16 @@ class Rol(db.Model):  # Nombre correcto de la tabla
 # Modelo de Usuarios
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
+
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(50), unique=True, nullable=False)
-    num_cel = db.Column(db.String(50), nullable=True)  # Asegúrate de que este campo existe
+    num_cel = db.Column(db.String(50), nullable=True)
     direccion = db.Column(db.String(100), nullable=True)
     contrasena_hash = db.Column(db.String(255), nullable=False)
     id_rol = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=False)
     estado = db.Column(db.String(20), default="Activo")
     rol = db.relationship('Rol', backref='usuarios')
-
-
 
     # Propiedad para manejar contraseñas seguras
     @property
